@@ -21,13 +21,13 @@ using namespace std;
 
 class Console {
 private:
-    int count;
+    int _count;
 public:
-    Console() : count(0){}
+    Console() : _count(0){}
 
     void PrintCommand(const string &_str){
-        if (count == 0) PrintHead();
-        count++;
+        if (_count == 0) PrintHead();
+        _count++;
         cout << _str;
     }
 
@@ -35,7 +35,7 @@ public:
     void PrintComma(){cout << ",";}
 
     void PrintEnd(){
-        count = 0;
+        _count = 0;
         cout << endl;
     }
 };
@@ -96,29 +96,44 @@ public:
 
 class PrintCommand: public ConsoleCommand {
     string cmd;
+    static int count;
 public:
-    PrintCommand(shared_ptr<Console> _console, string _cmd) : ConsoleCommand(std::move(_console)), cmd(std::move(_cmd)){}
+    PrintCommand(shared_ptr<Console> _console, string _cmd) : ConsoleCommand(std::move(_console)), cmd(std::move(_cmd)){
+        count++;
+    }
 
     void Execute() override {
         console->PrintCommand(cmd);
+        count--;
+        if (count != 0) console->PrintComma();
+        else console->PrintEnd();
     }
 };
 
 class LogWriteCommand : public LogCommand{
 private:
     string cmd;
+    static int count;
 public:
-    LogWriteCommand(shared_ptr<Log> _lg, string _cmd) : LogCommand(std::move(_lg)), cmd(std::move(_cmd)) {}
+    LogWriteCommand(shared_ptr<Log> _lg, string _cmd) : LogCommand(std::move(_lg)), cmd(std::move(_cmd)) {
+        count++;
+        if (count == 1) log->SetCurrentBlockTime();
+    }
 
     void Execute() override {
         log->Write(cmd);
+        count--;
+        if (count == 0) log->Close();
     }
 };
 
+int LogWriteCommand::count = 0;
+int PrintCommand::count = 0;
+
 class Commands{
 private:
-    vector<shared_ptr<ConsoleCommand>> commands;
-    vector<shared_ptr<LogCommand>> log_commands;
+    vector<shared_ptr<ICommand>> commands;
+
     unsigned short N;
     int state;
 
@@ -143,41 +158,31 @@ public:
                 return;
             }
         }
-        if (cmd != OPEN_DYNAMIC && cmd != CLOSE_DYNAMIC) {
+        if (cmd != OPEN_DYNAMIC && cmd != CLOSE_DYNAMIC){
             commands.emplace_back(new PrintCommand(console, cmd));
-            log_commands.emplace_back(new LogWriteCommand(lg, cmd));
-            if (log_commands.size() == 1) lg->SetCurrentBlockTime();
+            commands.emplace_back(new LogWriteCommand(lg, cmd));
         }
-        if (commands.size() >= N) Execute();
+        if (commands.size() >= 2*N) Execute();
     }
 
     void Execute(){
         if (commands.empty()) return;
 
-        unsigned int i = 0;
         for (auto &it : commands){
             it->Execute();
-            if (i < commands.size()-1) console->PrintComma();
-            ++i;
         }
-        console->PrintEnd();
-
-        for (auto &it : log_commands){
-            it->Execute();
-        }
-        lg->Close();
 
         PostActions();
     }
 
     void PostActions(){
         commands.clear();
-        log_commands.clear();
     }
 
     void Exit(){
         if (state == 0) Execute();
         console.reset();
+        lg.reset();
     }
 };
 
